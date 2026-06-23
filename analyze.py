@@ -3,6 +3,7 @@
 Analyze a chess game PGN with Stockfish and save structured JSON.
 
 Usage:
+  python analyze.py                  # paste PGN, press Ctrl+D when done
   python analyze.py game.pgn
   python analyze.py game.pgn --depth 20
   python analyze.py game.pgn --stockfish /usr/local/bin/stockfish
@@ -156,7 +157,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument("pgn", help="Path to PGN file")
+    parser.add_argument(
+        "pgn",
+        nargs="?",
+        help="Path to PGN file. Omit to paste PGN directly (end with Ctrl+D).",
+    )
     parser.add_argument(
         "--stockfish",
         default="stockfish",
@@ -170,24 +175,30 @@ def main():
     )
     parser.add_argument(
         "--output",
-        help="Output JSON path (default: <pgn_name>_analysis.json)",
+        default="game_analysis.json",
+        help="Output JSON path (default: game_analysis.json, or <pgn_name>_analysis.json if file given)",
     )
     args = parser.parse_args()
 
-    pgn_path = Path(args.pgn)
-    if not pgn_path.exists():
-        print(f"Error: File not found: {pgn_path}", file=sys.stderr)
-        sys.exit(1)
-
-    output_path = (
-        Path(args.output)
-        if args.output
-        else pgn_path.with_name(pgn_path.stem + "_analysis.json")
-    )
+    if args.pgn:
+        pgn_path = Path(args.pgn)
+        if not pgn_path.exists():
+            print(f"Error: File not found: {pgn_path}", file=sys.stderr)
+            sys.exit(1)
+        pgn_text = pgn_path.read_text()
+        output_path = Path(args.output) if args.output != "game_analysis.json" else pgn_path.with_name(pgn_path.stem + "_analysis.json")
+    else:
+        print("Paste your PGN below, then press Ctrl+D when done:\n")
+        pgn_text = sys.stdin.read().strip()
+        if not pgn_text:
+            print("Error: No PGN provided.", file=sys.stderr)
+            sys.exit(1)
+        output_path = Path(args.output)
+        print()
 
     try:
         result = analyze_game(
-            pgn_path.read_text(),
+            pgn_text,
             stockfish_path=args.stockfish,
             depth=args.depth,
         )
