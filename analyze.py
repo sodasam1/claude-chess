@@ -64,7 +64,13 @@ def pv_to_san(board: chess.Board, pv: list, max_moves: int = DEFAULT_PV_LENGTH) 
     return san_list
 
 
-def analyze_game(pgn_text: str, stockfish_path: str = "stockfish", depth: int = DEFAULT_DEPTH) -> dict:
+def analyze_game(
+    pgn_text: str,
+    stockfish_path: str = "stockfish",
+    depth: int = DEFAULT_DEPTH,
+    progress_callback=None,
+    silent: bool = False,
+) -> dict:
     game = chess.pgn.read_game(io.StringIO(pgn_text))
     if game is None:
         raise ValueError("Could not parse PGN — check the format and try again.")
@@ -79,8 +85,9 @@ def analyze_game(pgn_text: str, stockfish_path: str = "stockfish", depth: int = 
         initial_cp = get_white_cp(init_info["score"])
         prev_cp = initial_cp
 
-        print(f"Starting position: {cp_to_label(initial_cp)}")
-        print(f"Analyzing {sum(1 for _ in game.mainline_moves())} moves at depth {depth}...\n")
+        if not silent and not progress_callback:
+            print(f"Starting position: {cp_to_label(initial_cp)}")
+            print(f"Analyzing {sum(1 for _ in game.mainline_moves())} moves at depth {depth}...\n")
 
         half_move = 0
         for node in game.mainline():
@@ -135,13 +142,16 @@ def analyze_game(pgn_text: str, stockfish_path: str = "stockfish", depth: int = 
             moves.append(move_data)
             prev_cp = cur_cp
 
-            # Progress line
-            label = f"{move_num}{'.' if side == 'white' else '...'} {san}"
-            flag = " *** CRITICAL ***" if is_critical else ""
-            print(f"  {label:<20}  {cp_to_label(cur_cp):<38}  Δ{delta_cp:+d}cp{flag}")
+            if progress_callback:
+                progress_callback(move_data)
+            elif not silent:
+                label = f"{move_num}{'.' if side == 'white' else '...'} {san}"
+                flag = " *** CRITICAL ***" if is_critical else ""
+                print(f"  {label:<20}  {cp_to_label(cur_cp):<38}  Δ{delta_cp:+d}cp{flag}")
 
     critical_count = sum(1 for m in moves if m["is_critical"])
-    print(f"\nDone. {len(moves)} moves, {critical_count} critical positions.")
+    if not silent and not progress_callback:
+        print(f"\nDone. {len(moves)} moves, {critical_count} critical positions.")
 
     return {
         "metadata": metadata,
