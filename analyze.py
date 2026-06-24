@@ -26,6 +26,7 @@ from pathlib import Path
 
 CRITICAL_THRESHOLD_CP = 50
 DEFAULT_DEPTH = 18
+DEFAULT_CRITICAL_DEPTH = 25
 DEFAULT_PV_LENGTH = 8
 CRITICAL_PV_LENGTH = 20
 DEFAULT_MULTIPV = 3
@@ -127,7 +128,7 @@ def format_report(analysis):
     eng = analysis.get("engine", {})
     lines = []
 
-    # ── Header ────────────────────────────────────────────────────────────────────────
+    # ── Header ──
     lines.append("# Chess Game Analysis\n")
     lines.append(f"**White:** {meta.get('White', '?')}  ")
     lines.append(f"**Black:** {meta.get('Black', '?')}  ")
@@ -142,15 +143,18 @@ def format_report(analysis):
         lines.append(f"**ECO:** {meta['ECO']}  ")
 
     if eng:
+        d = eng.get('depth', '?')
+        cd = eng.get('critical_depth', d)
+        depth_str = f"depth {d} (critical: {cd})" if cd != d else f"depth {d}"
         lines.append(
             f"**Engine:** {eng.get('name', 'Stockfish')} · "
-            f"depth {eng.get('depth', '?')} · "
+            f"{depth_str} · "
             f"top {eng.get('multipv', '?')} lines  "
         )
 
     lines.append(f"\n**Starting evaluation:** {analysis['initial_eval_label']}")
 
-    # ── ACPL summary ────────────────────────────────────────────────────────────────
+    # ── ACPL summary ──
     all_moves = analysis["moves"]
     white_moves = [m for m in all_moves if m["side"] == "white" and m.get("cpl") is not None]
     black_moves = [m for m in all_moves if m["side"] == "black" and m.get("cpl") is not None]
@@ -159,7 +163,7 @@ def format_report(analysis):
         b_acpl = round(sum(m["cpl"] for m in black_moves) / len(black_moves)) if black_moves else "N/A"
         lines.append(f"**ACPL:** White {w_acpl} / Black {b_acpl}  ")
 
-    # ── Centipawn convention note ─────────────────────────────────────────────────────────
+    # ── Centipawn convention note ──
     white = meta.get("White", "White")
     black = meta.get("Black", "Black")
     lines.append(
@@ -168,7 +172,7 @@ def format_report(analysis):
         f"Moves marked ⚠️ had an evaluation swing of ≥0.5 pawns."
     )
 
-    # ── Critical positions summary ────────────────────────────────────────────────────
+    # ── Critical positions summary ──
     critical = [m for m in all_moves if m["is_critical"]]
     lines.append("\n---\n")
     lines.append("## Critical Positions\n")
@@ -186,7 +190,7 @@ def format_report(analysis):
     else:
         lines.append("_No moves with evaluation swings ≥0.5 pawns detected._")
 
-    # ── Move-by-move ─────────────────────────────────────────────────────────────────
+    # ── Move-by-move ──
     lines.append("\n---\n")
     lines.append("## Move-by-Move Analysis\n")
 
@@ -201,7 +205,9 @@ def format_report(analysis):
 
         heading = f"### Move {num}. {san} (White)" if side == "white" else f"### Move {num}... {san} (Black)"
         if is_critical:
-            heading += " ⚠️ CRITICAL"
+            ad = move.get("analysis_depth")
+            depth_tag = f" [d{ad}]" if ad else ""
+            heading += f" ⚠️ CRITICAL{depth_tag}"
         lines.append(heading)
 
         lines.append(f"\n**FEN:** `{move['fen_after']}`  ")
@@ -243,7 +249,7 @@ def format_report(analysis):
 
         lines.append("")
 
-    # ── Full PGN at end for reference ────────────────────────────────────────────────
+    # ── Full PGN at end for reference ──
     if analysis.get("pgn"):
         lines.append("\n---\n")
         lines.append("## Full PGN\n")
@@ -256,6 +262,7 @@ def analyze_game(
     pgn_text,
     stockfish_path="stockfish",
     depth=DEFAULT_DEPTH,
+    critical_depth=DEFAULT_CRITICAL_DEPTH,
     multipv=DEFAULT_MULTIPV,
     progress_callback=None,
     silent=False,
@@ -275,10 +282,13 @@ def analyze_game(
         except Exception:
             pass
 
+        effective_critical_depth = max(depth, critical_depth)
+
         # Capture engine metadata
         engine_meta = {
             "name": engine.id.get("name", "unknown"),
             "depth": depth,
+            "critical_depth": effective_critical_depth,
             "multipv": multipv,
             "threads": (engine.options["Threads"].default if "Threads" in engine.options else None) or 1,
             "hash_mb": (engine.options["Hash"].default if "Hash" in engine.options else None) or 16,
@@ -291,7 +301,10 @@ def analyze_game(
 
         if not silent and not progress_callback:
             print(f"Starting position: {cp_to_label(initial_cp)}")
-            print(f"Analyzing {sum(1 for _ in game.mainline_moves())} moves at depth {depth}, top {multipv} lines...\n")
+            print(
+                f"Analyzing {sum(1 for _ in game.mainline_moves())} moves at depth {depth} "
+                f"(critical positions: depth {effective_critical_depth}), top {multipv} lines...\n"
+            )
 
         half_move = 0
         for node in game.mainline():
@@ -326,7 +339,7 @@ def analyze_game(
                     "continuation": pv_to_san(parent_board, pv, max_moves=8),
                 })
 
-            # ── Push move, evaluate resulting position ───────────────────
+            # ── Push move, evaluate resulting position ──
             board.push(move)
             half_move += 1
 
@@ -334,6 +347,15 @@ def analyze_game(
             cur_cp = get_white_cp(post_info["score"])
             delta_cp = cur_cp - prev_cp
             is_critical = abs(delta_cp) >= CRITICAL_THRESHOLD_CP
+
+            # For critical positions, re-analyse at the higher depth for a trustworthy verdict.
+            # is_critical is determined at base depth (avoids depth-mixing in delta_cp), then
+            # the authoritative eval is replaced with the deeper result.
+            actual_depth = depth
+            if is_critical and effective_critical_depth > depth:
+                post_info = engine.analyse(board, chess.engine.Limit(depth=effective_critical_depth))
+                cur_cp = get_white_cp(post_info["score"])
+                actual_depth = effective_critical_depth
 
             wdl_str = _format_wdl(post_info.get("wdl"))
 
@@ -355,6 +377,7 @@ def analyze_game(
                 "eval_label": cp_to_label(cur_cp),
                 "eval_delta_cp": delta_cp,
                 "is_critical": is_critical,
+                "analysis_depth": actual_depth,
                 "best_continuation": best_continuation,
                 "top_lines": top_lines,
                 "cpl": cpl,
@@ -410,6 +433,13 @@ def main():
         help=f"Engine search depth (default: {DEFAULT_DEPTH}; higher = slower but stronger)",
     )
     parser.add_argument(
+        "--critical-depth",
+        type=int,
+        default=DEFAULT_CRITICAL_DEPTH,
+        dest="critical_depth",
+        help=f"Search depth for ⚠️ critical positions (default: {DEFAULT_CRITICAL_DEPTH}; set equal to --depth to disable)",
+    )
+    parser.add_argument(
         "--multipv",
         type=int,
         default=DEFAULT_MULTIPV,
@@ -447,6 +477,7 @@ def main():
             pgn_text,
             stockfish_path=args.stockfish,
             depth=args.depth,
+            critical_depth=args.critical_depth,
             multipv=args.multipv,
         )
     except FileNotFoundError:
