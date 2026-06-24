@@ -28,6 +28,105 @@ DEFAULT_PV_LENGTH = 8        # how many moves deep to record best lines
 MULTIPV_AT_CRITICAL = 3      # extra lines to store at critical positions
 
 
+def render_board(fen: str) -> str:
+    """Return a labeled ASCII board diagram from a FEN string."""
+    board = chess.Board(fen)
+    rows = str(board).split("\n")
+    lines = ["  a b c d e f g h"]
+    for rank_idx, row in enumerate(rows):
+        rank_num = 8 - rank_idx
+        lines.append(f"{rank_num} {row}")
+    return "\n".join(lines)
+
+
+def format_report(analysis: dict) -> str:
+    """Convert analysis JSON into a Markdown report ready to paste into an AI chat."""
+    meta = analysis["metadata"]
+    lines = []
+
+    # ── Header ────────────────────────────────────────────────────────────────────────
+    lines.append("# Chess Game Analysis\n")
+    lines.append(f"**White:** {meta.get('White', '?')}  ")
+    lines.append(f"**Black:** {meta.get('Black', '?')}  ")
+    if meta.get("Event"):
+        lines.append(f"**Event:** {meta['Event']}  ")
+    if meta.get("Date"):
+        lines.append(f"**Date:** {meta['Date']}  ")
+    lines.append(f"**Result:** {meta.get('Result', '?')}  ")
+    if meta.get("Opening"):
+        lines.append(f"**Opening:** {meta['Opening']}  ")
+    elif meta.get("ECO"):
+        lines.append(f"**ECO:** {meta['ECO']}  ")
+    lines.append(f"\n**Starting evaluation:** {analysis['initial_eval_label']}")
+
+    # ── Centipawn convention note ─────────────────────────────────────────────────────────
+    white = meta.get("White", "White")
+    black = meta.get("Black", "Black")
+    lines.append(
+        f"\n> Centipawn convention: positive scores favour **{white}** (White), "
+        f"negative scores favour **{black}** (Black). 100cp ≈ one pawn of advantage. "
+        f"Moves marked ⚠️ had an evaluation swing of ≥0.5 pawns."
+    )
+
+    # ── Critical positions summary ────────────────────────────────────────────────────
+    critical = [m for m in analysis["moves"] if m["is_critical"]]
+    lines.append("\n---\n")
+    lines.append("## Critical Positions\n")
+    if critical:
+        for m in critical:
+            num = m["move_number"]
+            san = m["san"]
+            side = m["side"]
+            delta = m["eval_delta_cp"]
+            label = f"{num}. {san}" if side == "white" else f"{num}... {san}"
+            direction = "↑ White gains" if delta > 0 else "↓ Black gains"
+            lines.append(f"- **{label}** ({side.title()}) — Δ{delta:+d}cp {direction} → {m['eval_label']}")
+    else:
+        lines.append("_No moves with evaluation swings ≥0.5 pawns detected._")
+
+    # ── Move-by-move ─────────────────────────────────────────────────────────────────
+    lines.append("\n---\n")
+    lines.append("## Move-by-Move Analysis\n")
+
+    for move in analysis["moves"]:
+        num = move["move_number"]
+        san = move["san"]
+        side = move["side"]
+        delta = move["eval_delta_cp"]
+        is_critical = move["is_critical"]
+
+        if side == "white":
+            heading = f"### Move {num}. {san} (White)"
+        else:
+            heading = f"### Move {num}... {san} (Black)"
+
+        if is_critical:
+            heading += " ⚠️ CRITICAL"
+
+        lines.append(heading)
+        lines.append(f"\n**FEN:** `{move['fen_after']}`  ")
+        lines.append(f"**Evaluation:** {move['eval_label']} ({move['eval_cp']:+d}cp)  ")
+        lines.append(f"**Change from previous move:** {delta:+d}cp  ")
+
+        if move.get("best_continuation"):
+            lines.append(f"**Engine's best continuation:** {' '.join(move['best_continuation'])}")
+
+        if is_critical:
+            lines.append(f"\n**Board position:**\n```\n{render_board(move['fen_after'])}\n```")
+
+            if move.get("alternative_lines"):
+                lines.append("\n**Alternative lines the engine considered:**")
+                for i, alt in enumerate(move["alternative_lines"], 1):
+                    lines.append(
+                        f"- Line {i} ({alt['eval_label']}, {alt['eval_cp']:+d}cp): "
+                        f"{' '.join(alt['continuation'])}"
+                    )
+
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def get_white_cp(score: chess.engine.PovScore) -> int:
     """Centipawn score from White's perspective. Forced mate maps to ±10000."""
     return score.white().score(mate_score=10000)
@@ -63,7 +162,13 @@ def pv_to_san(board: chess.Board, pv: list, max_moves: int = DEFAULT_PV_LENGTH) 
     return san_list
 
 
-def analyze_game(pgn_text: str, stockfish_path: str = "stockfish", depth: int = DEFAULT_DEPTH) -> dict:
+def analyze_game(
+    pgn_text: str,
+    stockfish_path: str = "stockfish",
+    depth: int = DEFAULT_DEPTH,
+    progress_callback=None,
+    silent: bool = False,
+) -> dict:
     game = chess.pgn.read_game(io.StringIO(pgn_text))
     if game is None:
         raise ValueError("Could not parse PGN — check the format and try again.")
@@ -78,8 +183,9 @@ def analyze_game(pgn_text: str, stockfish_path: str = "stockfish", depth: int = 
         initial_cp = get_white_cp(init_info["score"])
         prev_cp = initial_cp
 
-        print(f"Starting position: {cp_to_label(initial_cp)}")
-        print(f"Analyzing {sum(1 for _ in game.mainline_moves())} moves at depth {depth}...\n")
+        if not silent and not progress_callback:
+            print(f"Starting position: {cp_to_label(initial_cp)}")
+            print(f"Analyzing {sum(1 for _ in game.mainline_moves())} moves at depth {depth}...\n")
 
         half_move = 0
         for node in game.mainline():
@@ -134,13 +240,16 @@ def analyze_game(pgn_text: str, stockfish_path: str = "stockfish", depth: int = 
             moves.append(move_data)
             prev_cp = cur_cp
 
-            # Progress line
-            label = f"{move_num}{'.' if side == 'white' else '...'} {san}"
-            flag = " *** CRITICAL ***" if is_critical else ""
-            print(f"  {label:<20}  {cp_to_label(cur_cp):<38}  Δ{delta_cp:+d}cp{flag}")
+            if progress_callback:
+                progress_callback(move_data)
+            elif not silent:
+                label = f"{move_num}{'.' if side == 'white' else '...'} {san}"
+                flag = " *** CRITICAL ***" if is_critical else ""
+                print(f"  {label:<20}  {cp_to_label(cur_cp):<38}  Δ{delta_cp:+d}cp{flag}")
 
     critical_count = sum(1 for m in moves if m["is_critical"])
-    print(f"\nDone. {len(moves)} moves, {critical_count} critical positions.")
+    if not silent and not progress_callback:
+        print(f"\nDone. {len(moves)} moves, {critical_count} critical positions.")
 
     return {
         "metadata": metadata,
@@ -156,7 +265,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument("pgn", help="Path to PGN file")
+    parser.add_argument(
+        "pgn",
+        nargs="?",
+        help="Path to PGN file. Omit to paste PGN directly (end with Ctrl+D).",
+    )
     parser.add_argument(
         "--stockfish",
         default="stockfish",
@@ -170,24 +283,30 @@ def main():
     )
     parser.add_argument(
         "--output",
-        help="Output JSON path (default: <pgn_name>_analysis.json)",
+        default="game_analysis.json",
+        help="Output JSON path (default: game_analysis.json, or <pgn_name>_analysis.json if file given)",
     )
     args = parser.parse_args()
 
-    pgn_path = Path(args.pgn)
-    if not pgn_path.exists():
-        print(f"Error: File not found: {pgn_path}", file=sys.stderr)
-        sys.exit(1)
-
-    output_path = (
-        Path(args.output)
-        if args.output
-        else pgn_path.with_name(pgn_path.stem + "_analysis.json")
-    )
+    if args.pgn:
+        pgn_path = Path(args.pgn)
+        if not pgn_path.exists():
+            print(f"Error: File not found: {pgn_path}", file=sys.stderr)
+            sys.exit(1)
+        pgn_text = pgn_path.read_text()
+        output_path = Path(args.output) if args.output != "game_analysis.json" else pgn_path.with_name(pgn_path.stem + "_analysis.json")
+    else:
+        print("Paste your PGN below, then press Ctrl+D when done:\n")
+        pgn_text = sys.stdin.read().strip()
+        if not pgn_text:
+            print("Error: No PGN provided.", file=sys.stderr)
+            sys.exit(1)
+        output_path = Path(args.output)
+        print()
 
     try:
         result = analyze_game(
-            pgn_path.read_text(),
+            pgn_text,
             stockfish_path=args.stockfish,
             depth=args.depth,
         )
@@ -204,8 +323,11 @@ def main():
         sys.exit(1)
 
     output_path.write_text(json.dumps(result, indent=2))
+    md_path = output_path.with_suffix(".md")
+    md_path.write_text(format_report(result))
     print(f"Saved: {output_path}")
-    print(f"\nNext: python chat.py {output_path}")
+    print(f"Saved: {md_path}")
+    print(f"\nPaste {md_path} into your AI chat to ask questions about the game.")
 
 
 if __name__ == "__main__":

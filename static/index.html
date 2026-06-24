@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Chess Coach</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --blue: #1565c0;
+  --blue-dk: #0d47a1;
+  --bg: #f0f2f5;
+  --surface: #fff;
+  --text: #111;
+  --muted: #666;
+  --border: #ddd;
+  --critical: #d84315;
+}
+
+html, body {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-text-size-adjust: 100%;
+}
+
+.hdr {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 13px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.hdr h1 { font-size: 18px; font-weight: 700; }
+.game-label {
+  font-size: 13px;
+  color: var(--muted);
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.btn-ghost {
+  padding: 6px 14px;
+  background: transparent;
+  color: var(--blue);
+  border: 1.5px solid var(--blue);
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  white-space: nowrap;
+}
+
+#view-analyze { display: flex; flex-direction: column; min-height: 100vh; }
+
+.analyze-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 560px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+#pgn-input {
+  width: 100%;
+  min-height: 160px;
+  padding: 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  font-family: 'Menlo', 'Courier New', monospace;
+  font-size: 13px;
+  resize: vertical;
+  color: var(--text);
+  background: var(--surface);
+}
+#pgn-input:focus { outline: none; border-color: var(--blue); }
+
+.btn-primary {
+  width: 100%;
+  padding: 15px;
+  background: var(--blue);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn-primary:active { background: var(--blue-dk); }
+.btn-primary:disabled { opacity: 0.5; cursor: default; }
+
+#progress-box {
+  display: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.progress-hdr {
+  padding: 9px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border);
+}
+#progress-log {
+  padding: 10px 12px;
+  max-height: 230px;
+  overflow-y: auto;
+  font-family: 'Menlo', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.9;
+}
+.pm { color: var(--text); }
+.pc { color: var(--critical); font-weight: 600; }
+.pe { color: #c62828; }
+
+#view-chat {
+  display: none;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+}
+
+#messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.msg {
+  max-width: 82%;
+  padding: 10px 14px;
+  border-radius: 16px;
+  font-size: 15px;
+  line-height: 1.5;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.msg.user {
+  background: var(--blue);
+  color: #fff;
+  align-self: flex-end;
+  border-bottom-right-radius: 4px;
+}
+.msg.bot {
+  background: var(--surface);
+  color: var(--text);
+  align-self: flex-start;
+  border-bottom-left-radius: 4px;
+  border: 1px solid var(--border);
+}
+.msg.err {
+  background: #fff0f0;
+  color: #c62828;
+  align-self: center;
+  border: 1px solid #ffcdd2;
+  font-size: 14px;
+  max-width: 90%;
+}
+
+#input-bar {
+  padding: 10px 12px;
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+#chat-input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 22px;
+  font-size: 16px;
+  font-family: inherit;
+  resize: none;
+  max-height: 110px;
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.4;
+}
+#chat-input:focus { outline: none; border-color: var(--blue); }
+
+#send-btn {
+  width: 42px; height: 42px;
+  border-radius: 50%;
+  background: var(--blue);
+  color: #fff;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  line-height: 1;
+}
+#send-btn:disabled { opacity: 0.4; cursor: default; }
+</style>
+</head>
+<body>
+
+<div id="view-analyze">
+  <div class="hdr">
+    <h1>♟ Chess Coach</h1>
+  </div>
+  <div class="analyze-body">
+    <div class="field-label">Paste PGN</div>
+    <textarea id="pgn-input" spellcheck="false"
+      placeholder='[Event "My Game"]&#10;[White "Me"]&#10;[Black "Opponent"]&#10;&#10;1. e4 e5 2. Nf3 Nc6 ...'></textarea>
+    <button class="btn-primary" id="analyze-btn" onclick="startAnalysis()">Analyze Game</button>
+    <div id="progress-box">
+      <div class="progress-hdr">Analyzing with Stockfish…</div>
+      <div id="progress-log"></div>
+    </div>
+  </div>
+</div>
+
+<div id="view-chat">
+  <div class="hdr">
+    <span class="game-label" id="game-label"></span>
+    <button class="btn-ghost" onclick="newGame()">New Game</button>
+  </div>
+  <div id="messages"></div>
+  <div id="input-bar">
+    <textarea id="chat-input" rows="1" placeholder="Ask about the game…"></textarea>
+    <button id="send-btn" onclick="sendMessage()">↑</button>
+  </div>
+</div>
+
+<script>
+let analysis = null;
+let conversation = [];
+let busy = false;
+
+async function* sseStream(url, body) {
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+    throw new Error(err.detail || resp.statusText);
+  }
+  const reader = resp.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const parts = buf.split('\n\n');
+      buf = parts.pop();
+      for (const part of parts) {
+        const line = part.trim();
+        if (line.startsWith('data: ')) {
+          try { yield JSON.parse(line.slice(6)); } catch {}
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+async function startAnalysis() {
+  const pgn = document.getElementById('pgn-input').value.trim();
+  if (!pgn) { alert('Paste a PGN first.'); return; }
+
+  const btn = document.getElementById('analyze-btn');
+  const box = document.getElementById('progress-box');
+  const log = document.getElementById('progress-log');
+
+  btn.disabled = true;
+  btn.textContent = 'Analyzing…';
+  box.style.display = 'block';
+  log.innerHTML = '';
+  analysis = null;
+
+  try {
+    for await (const ev of sseStream('/analyze', { pgn })) {
+      if (ev.type === 'move') {
+        const m = ev.data;
+        const label = m.side === 'white'
+          ? `${m.move_number}. ${m.san}`
+          : `${m.move_number}… ${m.san}`;
+        const line = document.createElement('div');
+        line.className = m.is_critical ? 'pc' : 'pm';
+        line.textContent = `${label.padEnd(12)}  ${m.eval_label}${m.is_critical ? '  ★' : ''}`;
+        log.appendChild(line);
+        log.scrollTop = log.scrollHeight;
+      } else if (ev.type === 'done') {
+        analysis = ev.analysis;
+        enterChat();
+      } else if (ev.type === 'error') {
+        addProgressLine('pe', '⚠ ' + ev.message);
+      }
+    }
+  } catch (e) {
+    addProgressLine('pe', '⚠ ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Analyze Game';
+  }
+}
+
+function addProgressLine(cls, text) {
+  const line = document.createElement('div');
+  line.className = cls;
+  line.textContent = text;
+  const log = document.getElementById('progress-log');
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+function enterChat() {
+  const m = analysis.metadata;
+  const white = m.White || 'White';
+  const black = m.Black || 'Black';
+  const result = m.Result ? ` · ${m.Result}` : '';
+  document.getElementById('game-label').textContent = `${white} vs ${black}${result}`;
+
+  document.getElementById('view-analyze').style.display = 'none';
+  document.getElementById('view-chat').style.display = 'flex';
+  document.getElementById('messages').innerHTML = '';
+  conversation = [];
+
+  const critical = analysis.moves.filter(mv => mv.is_critical).length;
+  addBubble('bot',
+    `Loaded: ${analysis.moves.length} moves, ${critical} critical position${critical !== 1 ? 's' : ''}. Ask me anything about this game.`
+  );
+  document.getElementById('chat-input').focus();
+}
+
+function newGame() {
+  document.getElementById('view-chat').style.display = 'none';
+  document.getElementById('view-analyze').style.display = 'flex';
+  document.getElementById('progress-box').style.display = 'none';
+  document.getElementById('progress-log').innerHTML = '';
+  analysis = null;
+  conversation = [];
+}
+
+async function sendMessage() {
+  if (busy) return;
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+
+  input.value = '';
+  input.style.height = 'auto';
+
+  conversation.push({ role: 'user', content: text });
+  addBubble('user', text);
+
+  const bubble = addBubble('bot', '');
+  busy = true;
+  document.getElementById('send-btn').disabled = true;
+
+  try {
+    let full = '';
+    for await (const ev of sseStream('/chat', { analysis, messages: conversation })) {
+      if (ev.type === 'token') {
+        full += ev.text;
+        bubble.textContent = full;
+        scrollBottom();
+      } else if (ev.type === 'done') {
+        conversation.push({ role: 'assistant', content: full });
+      } else if (ev.type === 'error') {
+        throw new Error(ev.message);
+      }
+    }
+  } catch (e) {
+    bubble.textContent = '⚠ ' + e.message;
+    bubble.className = 'msg err';
+    conversation.pop();
+  } finally {
+    busy = false;
+    document.getElementById('send-btn').disabled = false;
+  }
+}
+
+function addBubble(who, text) {
+  const div = document.createElement('div');
+  div.className = `msg ${who}`;
+  div.textContent = text;
+  document.getElementById('messages').appendChild(div);
+  scrollBottom();
+  return div;
+}
+
+function scrollBottom() {
+  const msgs = document.getElementById('messages');
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+document.getElementById('chat-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+
+document.getElementById('chat-input').addEventListener('input', function () {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 110) + 'px';
+});
+</script>
+</body>
+</html>
