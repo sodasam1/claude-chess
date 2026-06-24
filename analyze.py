@@ -110,12 +110,14 @@ def _parse_clock(comment):
 def _format_wdl(wdl):
     if wdl is None:
         return None
-    total = wdl.wins + wdl.draws + wdl.losses
+    # info["wdl"] is a PovWdl; .white() gives the Wdl from White's perspective
+    wdl_w = wdl.white()
+    total = wdl_w.wins + wdl_w.draws + wdl_w.losses
     if total == 0:
         return None
-    w = round(wdl.wins * 100 / total)
-    d = round(wdl.draws * 100 / total)
-    l = round(wdl.losses * 100 / total)
+    w = round(wdl_w.wins * 100 / total)
+    d = round(wdl_w.draws * 100 / total)
+    l = round(wdl_w.losses * 100 / total)
     return f"{w}%/{d}%/{l}%"
 
 
@@ -278,8 +280,8 @@ def analyze_game(
             "name": engine.id.get("name", "unknown"),
             "depth": depth,
             "multipv": multipv,
-            "threads": engine.options["Threads"].default if "Threads" in engine.options else 1,
-            "hash_mb": engine.options["Hash"].default if "Hash" in engine.options else 16,
+            "threads": (engine.options["Threads"].default if "Threads" in engine.options else None) or 1,
+            "hash_mb": (engine.options["Hash"].default if "Hash" in engine.options else None) or 16,
         }
 
         # Evaluate starting position
