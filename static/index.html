@@ -236,6 +236,14 @@ html, body {
     <div class="field-label">Paste PGN</div>
     <textarea id="pgn-input" spellcheck="false"
       placeholder='[Event "My Game"]&#10;[White "Me"]&#10;[Black "Opponent"]&#10;&#10;1. e4 e5 2. Nf3 Nc6 ...'></textarea>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+      <label for="tier-select" style="font-size:0.85rem;color:var(--muted);white-space:nowrap;">Analysis depth:</label>
+      <select id="tier-select" style="flex:1;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.85rem;">
+        <option value="standard">Standard (depth 18 / 25)</option>
+        <option value="deep">Deep (depth 27 / 37)</option>
+        <option value="max">Max (depth 36 / 50)</option>
+      </select>
+    </div>
     <button class="btn-primary" id="analyze-btn" onclick="startAnalysis()">Analyze Game</button>
     <div id="progress-box">
       <div class="progress-hdr">Analyzing with Stockfish…</div>
@@ -308,7 +316,8 @@ async function startAnalysis() {
   analysis = null;
 
   try {
-    for await (const ev of sseStream('/analyze', { pgn })) {
+    const tier = document.getElementById('tier-select').value;
+    for await (const ev of sseStream('/analyze', { pgn, tier })) {
       if (ev.type === 'move') {
         const m = ev.data;
         const label = m.side === 'white'
