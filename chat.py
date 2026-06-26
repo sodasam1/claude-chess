@@ -71,9 +71,9 @@ def format_game_context(analysis: dict) -> str:
         if move.get("best_continuation"):
             lines.append(f"  Engine's best continuation from here: {' '.join(move['best_continuation'])}")
 
-        if move.get("alternative_lines"):
-            lines.append("  Engine's alternative lines at this critical position:")
-            for i, alt in enumerate(move["alternative_lines"], 1):
+        if move.get("top_lines"):
+            lines.append("  Engine's top lines from this position:")
+            for i, alt in enumerate(move["top_lines"], 1):
                 lines.append(
                     f"    Line {i} ({alt['eval_label']}, {alt['eval_cp']:+d}cp): "
                     f"{' '.join(alt['continuation'])}"

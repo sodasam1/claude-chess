@@ -124,7 +124,7 @@ def _format_wdl(wdl):
         return None
     w = round(wdl_w.wins * 100 / total)
     d = round(wdl_w.draws * 100 / total)
-    l = round(wdl_w.losses * 100 / total)
+    l = 100 - w - d
     return f"{w}%/{d}%/{l}%"
 
 
@@ -356,6 +356,11 @@ def analyze_game(
             delta_cp = cur_cp - prev_cp
             is_critical = abs(delta_cp) >= CRITICAL_THRESHOLD_CP
 
+            # Capture mover eval at base depth now for consistent CPL later.
+            # CPL must compare best_mover_cp (base depth) against played_mover_cp at the
+            # same depth — mixing depths skews the metric for critical moves.
+            played_mover_cp = _get_mover_cp(post_info["score"], parent_board.turn)
+
             # For critical positions, re-analyse at the higher depth for a trustworthy verdict.
             # is_critical is determined at base depth (avoids depth-mixing in delta_cp), then
             # the authoritative eval is replaced with the deeper result.
@@ -368,7 +373,6 @@ def analyze_game(
             wdl_str = _format_wdl(post_info.get("wdl"))
 
             # ACPL: best-move eval minus played-move eval, from mover's perspective
-            played_mover_cp = _get_mover_cp(post_info["score"], parent_board.turn)
             cpl = max(0, best_mover_cp - played_mover_cp)
             classification = _classify(cpl)
 

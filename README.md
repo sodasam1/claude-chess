@@ -57,15 +57,16 @@ python3 analyze.py
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--depth N` | 18 | Stockfish search depth for all positions |
-| `--critical-depth N` | 25 | Deeper search for ⚠️ critical positions only |
+| `--tier NAME` | `standard` | Depth preset: `standard` (18/25), `deep` (27/37), `max` (36/50) |
+| `--depth N` | _(tier)_ | Override the tier's base depth |
+| `--critical-depth N` | _(tier)_ | Override the tier's critical depth (set equal to `--depth` to disable) |
 | `--multipv N` | 3 | Top engine lines to record per position |
 | `--stockfish PATH` | `stockfish` | Path to Stockfish binary if not on PATH |
 | `--output PATH` | `game_analysis.json` | Override output filename |
 
-Set `--critical-depth` equal to `--depth` to disable the targeted depth bump. Increase `--multipv` to 5 for more alternatives; set to 1 to roughly halve analysis time.
+`--depth` and `--critical-depth` override the tier's values when specified explicitly. Increase `--multipv` to 5 for more alternatives; set to 1 to roughly halve analysis time.
 
-**Typical time:** ~10–20 minutes for a 40-move game at the defaults (depth 18, critical depth 25, top 3 lines).
+**Typical time:** ~10–20 minutes for a 40-move game at `standard` tier. `deep` and `max` tiers take roughly 1.5× and 2× longer respectively.
 
 ---
 
