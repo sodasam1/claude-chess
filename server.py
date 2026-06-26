@@ -22,7 +22,7 @@ from pydantic import BaseModel
 import anthropic
 
 sys.path.insert(0, str(Path(__file__).parent))
-from analyze import analyze_game
+from analyze import analyze_game, DEPTH_TIERS
 from chat import build_system_prompt
 
 app = FastAPI()
@@ -30,6 +30,7 @@ app = FastAPI()
 
 class AnalyzeRequest(BaseModel):
     pgn: str
+    tier: str = "standard"
 
 
 class Message(BaseModel):
@@ -66,7 +67,16 @@ async def analyze_endpoint(req: AnalyzeRequest):
                     queue.put({"type": "move", "data": move_data}), loop
                 )
 
-            result = analyze_game(req.pgn, progress_callback=on_move, silent=True)
+            t = DEPTH_TIERS.get(req.tier, DEPTH_TIERS["standard"])
+            result = analyze_game(
+                req.pgn,
+                depth=t["depth"],
+                critical_depth=t["critical_depth"],
+                pv_length=t["pv"],
+                critical_pv_length=t["critical_pv"],
+                progress_callback=on_move,
+                silent=True,
+            )
             asyncio.run_coroutine_threadsafe(
                 queue.put({"type": "done", "analysis": result}), loop
             )

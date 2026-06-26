@@ -31,6 +31,12 @@ DEFAULT_PV_LENGTH = 8
 CRITICAL_PV_LENGTH = 20
 DEFAULT_MULTIPV = 3
 
+DEPTH_TIERS = {
+    "standard": {"depth": 18, "critical_depth": 25, "pv": 8,  "critical_pv": 20},
+    "deep":     {"depth": 27, "critical_depth": 37, "pv": 12, "critical_pv": 30},
+    "max":      {"depth": 36, "critical_depth": 50, "pv": 16, "critical_pv": 40},
+}
+
 _CLK_RE = re.compile(r'\[%clk (\d+:\d+:\d+\.?\d*)\]')
 
 _CLASSIFICATION_THRESHOLDS = [
@@ -264,6 +270,8 @@ def analyze_game(
     depth=DEFAULT_DEPTH,
     critical_depth=DEFAULT_CRITICAL_DEPTH,
     multipv=DEFAULT_MULTIPV,
+    pv_length=DEFAULT_PV_LENGTH,
+    critical_pv_length=CRITICAL_PV_LENGTH,
     progress_callback=None,
     silent=False,
 ):
@@ -336,7 +344,7 @@ def analyze_game(
                     "move_san": first_san,
                     "eval_cp": get_white_cp(li["score"]),
                     "eval_label": cp_to_label(get_white_cp(li["score"])),
-                    "continuation": pv_to_san(parent_board, pv, max_moves=8),
+                    "continuation": pv_to_san(parent_board, pv, max_moves=pv_length),
                 })
 
             # ── Push move, evaluate resulting position ──
@@ -364,7 +372,7 @@ def analyze_game(
             cpl = max(0, best_mover_cp - played_mover_cp)
             classification = _classify(cpl)
 
-            stored_pv_limit = CRITICAL_PV_LENGTH if is_critical else DEFAULT_PV_LENGTH
+            stored_pv_limit = critical_pv_length if is_critical else pv_length
             best_continuation = pv_to_san(board, post_info.get("pv", []), max_moves=stored_pv_limit)
 
             move_data = {
@@ -427,17 +435,23 @@ def main():
         help="Path to Stockfish binary (default: 'stockfish', must be on PATH)",
     )
     parser.add_argument(
+        "--tier",
+        choices=["standard", "deep", "max"],
+        default="standard",
+        help="Analysis depth tier: standard (18/25), deep (27/37), max (36/50) — overridden by --depth/--critical-depth",
+    )
+    parser.add_argument(
         "--depth",
         type=int,
-        default=DEFAULT_DEPTH,
-        help=f"Engine search depth (default: {DEFAULT_DEPTH}; higher = slower but stronger)",
+        default=None,
+        help=f"Engine search depth — overrides the tier's base depth (tier default: {DEFAULT_DEPTH})",
     )
     parser.add_argument(
         "--critical-depth",
         type=int,
-        default=DEFAULT_CRITICAL_DEPTH,
+        default=None,
         dest="critical_depth",
-        help=f"Search depth for ⚠️ critical positions (default: {DEFAULT_CRITICAL_DEPTH}; set equal to --depth to disable)",
+        help=f"Search depth for ⚠️ critical positions — overrides the tier's critical depth (tier default: {DEFAULT_CRITICAL_DEPTH}; set equal to --depth to disable)",
     )
     parser.add_argument(
         "--multipv",
@@ -472,13 +486,19 @@ def main():
         output_path = Path(args.output)
         print()
 
+    tier = DEPTH_TIERS[args.tier]
+    effective_depth          = args.depth          if args.depth          is not None else tier["depth"]
+    effective_critical_depth = args.critical_depth if args.critical_depth is not None else tier["critical_depth"]
+
     try:
         result = analyze_game(
             pgn_text,
             stockfish_path=args.stockfish,
-            depth=args.depth,
-            critical_depth=args.critical_depth,
+            depth=effective_depth,
+            critical_depth=effective_critical_depth,
             multipv=args.multipv,
+            pv_length=tier["pv"],
+            critical_pv_length=tier["critical_pv"],
         )
     except FileNotFoundError:
         print(f"\nError: Stockfish not found at '{args.stockfish}'.", file=sys.stderr)
